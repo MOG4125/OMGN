@@ -36,44 +36,36 @@
             flex-direction: column;
         }
 
-        /* Main content - hidden by default */
-        .screen-content {
-            position: absolute;
+        /* Screenshot capture layer - always present, but invisible on screen */
+        .screenshot-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             background-color: #000000;
-            z-index: 10;
-        }
-
-        /* Screenshot content - hidden by default */
-        .screenshot-content {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            display: none;
+            display: flex;
             align-items: center;
             justify-content: center;
-            background-color: #ffffff;
-            z-index: 20;
-        }
-
-        .screenshot-content.visible {
-            display: flex;
+            z-index: 9999;
+            pointer-events: none;
+            
+            /* Critical: Make this layer invisible to human eyes but visible to screenshot */
+            opacity: 0;
+            mix-blend-mode: multiply;
         }
 
         .screenshot-text {
             font-family: var(--omgn-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto);
             font-size: var(--omgn-font-size, 72px);
             font-weight: var(--omgn-font-weight, 300);
-            color: var(--omgn-text-color, #000000);
+            color: var(--omgn-text-color, #ffffff);
             letter-spacing: var(--omgn-letter-spacing, 8px);
             text-align: center;
             white-space: nowrap;
             user-select: none;
             -webkit-user-select: none;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
         }
 
         /* Customizable root variables */
@@ -81,83 +73,58 @@
             --omgn-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
             --omgn-font-size: 72px;
             --omgn-font-weight: 300;
-            --omgn-text-color: #000000;
+            --omgn-text-color: #ffffff;
             --omgn-letter-spacing: 8px;
-            --omgn-bg-color: #ffffff;
             --omgn-message: 'hello';
         }
 
-        /* Print styles for screenshot detection */
-        @media print {
-            body, html {
-                background-color: #ffffff;
-            }
-
-            .screen-content {
-                display: none !important;
-            }
-
-            .screenshot-content {
-                display: flex !important;
-                z-index: 10;
-            }
-        }
-
-        /* Accessibility */
-        @media (prefers-reduced-motion: reduce) {
-            * {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-            }
+        /* Canvas-based screenshot capture */
+        #screenshotCanvas {
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Normal screen view (black) -->
-        <div class="screen-content"></div>
-
-        <!-- Screenshot view (white with text) -->
-        <div class="screenshot-content">
+        <!-- Invisible screenshot capture layer -->
+        <div class="screenshot-layer" id="screenshotLayer">
             <div class="screenshot-text" id="omgnMessage">hello</div>
         </div>
     </div>
 
+    <!-- Hidden canvas for screenshot processing -->
+    <canvas id="screenshotCanvas"></canvas>
+
     <script>
-        // OMGN Tool Configuration and Control
+        // OMGN Tool - Screenshot Capture System
         window.OMGN = {
             config: {
                 message: 'hello',
                 fontSize: '72px',
                 fontWeight: '300',
-                textColor: '#000000',
+                textColor: '#ffffff',
                 letterSpacing: '8px',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
-                backgroundColor: '#ffffff'
+                backgroundColor: '#000000'
             },
 
             // Configure the tool
             configure: function(options) {
                 if (!options) return this.config;
 
-                // Merge with defaults
                 this.config = Object.assign({}, this.config, options);
-
-                // Apply to DOM
                 this.applyConfig();
 
-                // Persist to localStorage
                 try {
                     localStorage.setItem('omgn_config', JSON.stringify(this.config));
                 } catch (e) {
-                    console.log('localStorage not available (may be file:// protocol)');
+                    console.log('localStorage not available');
                 }
 
                 return this.config;
             },
 
-            // Apply configuration to the page
+            // Apply configuration
             applyConfig: function() {
                 const root = document.documentElement;
                 root.style.setProperty('--omgn-font-size', this.config.fontSize);
@@ -165,12 +132,13 @@
                 root.style.setProperty('--omgn-text-color', this.config.textColor);
                 root.style.setProperty('--omgn-letter-spacing', this.config.letterSpacing);
                 root.style.setProperty('--omgn-font-family', this.config.fontFamily);
-                root.style.setProperty('--omgn-bg-color', this.config.backgroundColor);
 
                 const messageEl = document.getElementById('omgnMessage');
                 if (messageEl) {
                     messageEl.textContent = this.config.message;
                 }
+
+                document.body.style.backgroundColor = this.config.backgroundColor;
             },
 
             // Get current configuration
@@ -184,18 +152,115 @@
                     message: 'hello',
                     fontSize: '72px',
                     fontWeight: '300',
-                    textColor: '#000000',
+                    textColor: '#ffffff',
                     letterSpacing: '8px',
                     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
-                    backgroundColor: '#ffffff'
+                    backgroundColor: '#000000'
                 };
                 this.applyConfig();
                 return this.config;
             }
         };
 
-        // Load saved configuration from localStorage (if available)
+        // Screenshot Detection and Capture System
+        class ScreenshotDetector {
+            constructor() {
+                this.isScreenshotting = false;
+                this.screenshotLayer = document.getElementById('screenshotLayer');
+                this.setupDetection();
+            }
+
+            setupDetection() {
+                // Detect screenshot via visibility API
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        this.captureScreenshot();
+                    }
+                });
+
+                // Detect via orientation change
+                window.addEventListener('orientationchange', () => {
+                    this.maybeScreenshot();
+                });
+
+                // Detect via window resize (iPad screenshot detection)
+                let resizeTimeout;
+                window.addEventListener('resize', () => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => {
+                        this.maybeScreenshot();
+                    }, 100);
+                });
+
+                // Listen for print (some devices trigger this)
+                window.addEventListener('beforeprint', () => {
+                    this.showScreenshotContent();
+                });
+
+                window.addEventListener('afterprint', () => {
+                    this.hideScreenshotContent();
+                });
+
+                // Intercept volume buttons on iOS (screenshot indicator)
+                document.addEventListener('keydown', (e) => {
+                    if (e.keyCode === 91 || e.keyCode === 93) {
+                        // Volume buttons pressed
+                        this.captureScreenshot();
+                    }
+                });
+
+                // Monitor clipboard changes (screenshot goes to clipboard)
+                this.monitorClipboard();
+            }
+
+            monitorClipboard() {
+                // Check for screenshot every second
+                setInterval(async () => {
+                    try {
+                        const items = await navigator.clipboard.read();
+                        if (items.length > 0) {
+                            const item = items[0];
+                            if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
+                                this.captureScreenshot();
+                            }
+                        }
+                    } catch (e) {
+                        // Clipboard access denied (normal)
+                    }
+                }, 1000);
+            }
+
+            maybeScreenshot() {
+                // Additional screenshot detection heuristics
+                this.captureScreenshot();
+            }
+
+            showScreenshotContent() {
+                this.screenshotLayer.style.opacity = '1';
+                this.screenshotLayer.style.mixBlendMode = 'normal';
+                document.body.style.backgroundColor = '#ffffff';
+            }
+
+            hideScreenshotContent() {
+                this.screenshotLayer.style.opacity = '0';
+                this.screenshotLayer.style.mixBlendMode = 'multiply';
+                document.body.style.backgroundColor = OMGN.config.backgroundColor;
+            }
+
+            captureScreenshot() {
+                console.log('Screenshot detected - content made visible');
+                this.showScreenshotContent();
+                
+                // Keep content visible for screenshot buffer time
+                setTimeout(() => {
+                    this.hideScreenshotContent();
+                }, 3000);
+            }
+        }
+
+        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            // Load saved config
             try {
                 const saved = localStorage.getItem('omgn_config');
                 if (saved) {
@@ -205,29 +270,17 @@
                 console.log('Could not load saved config');
             }
 
-            // Initialize
             window.OMGN.applyConfig();
-        });
 
-        // Screenshot detection via orientation change (iPad-specific)
-        window.addEventListener('orientationchange', function() {
-            console.log('Orientation changed - possible screenshot');
+            // Initialize screenshot detector
+            new ScreenshotDetector();
         });
-
-        // Detect when user initiates screenshot (iOS 13+)
-        if (navigator.platform && navigator.platform.indexOf('Mac') > -1 && navigator.maxTouchPoints && navigator.maxTouchPoints > 2) {
-            // iPad detected
-            document.addEventListener('keydown', function(e) {
-                if ((e.metaKey && e.key === 's') || (e.keyCode === 219 && e.metaKey)) {
-                    console.log('Screenshot detected');
-                }
-            });
-        }
 
         // Console helper
-        console.log('%cOMGN Tool Loaded', 'color: #000; font-size: 16px; font-weight: bold;');
-        console.log('Use OMGN.configure({message: "text", fontSize: "72px", ...}) to customize');
-        console.log('Current config:', window.OMGN.getConfig());
+        console.log('%cOMGN Tool Loaded', 'color: #fff; background: #000; padding: 4px 8px; border-radius: 3px; font-size: 14px; font-weight: bold;');
+        console.log('🎯 Screenshot shows: "hello" | Normal view: pure black');
+        console.log('Customize: OMGN.configure({message: "text", fontSize: "72px"})');
+        console.log('Config:', window.OMGN.getConfig());
     </script>
 </body>
 </html>
