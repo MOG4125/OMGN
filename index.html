@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>OMGN</title>
     <style>
         * {
@@ -11,15 +12,18 @@
             box-sizing: border-box;
         }
 
-        body {
+        html, body {
             width: 100%;
-            height: 100vh;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #000000;
+            background-color: #000000;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             overflow: hidden;
+            position: fixed;
+            top: 0;
+            left: 0;
         }
 
         .container {
@@ -29,53 +33,50 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-direction: column;
         }
 
-        /* Hidden by default (visible on screen) */
-        .screen-only {
+        /* Main content - hidden by default */
+        .screen-content {
             position: absolute;
-            color: rgba(0, 0, 0, 0);
-            font-size: 1px;
-            opacity: 0;
-            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000000;
+            z-index: 10;
         }
 
-        /* Visible only during screenshot via print media */
-        @media print {
-            body {
-                background: #ffffff;
-            }
-
-            .screen-only {
-                display: none;
-            }
-
-            .screenshot-only {
-                display: flex !important;
-            }
-        }
-
-        /* Hidden by default, shown on screenshot */
-        .screenshot-only {
+        /* Screenshot content - hidden by default */
+        .screenshot-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
             display: none;
-            font-size: 72px;
-            font-weight: 300;
-            letter-spacing: 8px;
-            color: #000000;
-            text-align: center;
-            white-space: nowrap;
+            align-items: center;
+            justify-content: center;
+            background-color: #ffffff;
+            z-index: 20;
         }
 
-        /* Customizable text via CSS variable */
+        .screenshot-content.visible {
+            display: flex;
+        }
+
         .screenshot-text {
             font-family: var(--omgn-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto);
             font-size: var(--omgn-font-size, 72px);
             font-weight: var(--omgn-font-weight, 300);
             color: var(--omgn-text-color, #000000);
             letter-spacing: var(--omgn-letter-spacing, 8px);
+            text-align: center;
+            white-space: nowrap;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
-        /* Custom styling options */
+        /* Customizable root variables */
         :root {
             --omgn-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
             --omgn-font-size: 72px;
@@ -85,72 +86,148 @@
             --omgn-bg-color: #ffffff;
             --omgn-message: 'hello';
         }
+
+        /* Print styles for screenshot detection */
+        @media print {
+            body, html {
+                background-color: #ffffff;
+            }
+
+            .screen-content {
+                display: none !important;
+            }
+
+            .screenshot-content {
+                display: flex !important;
+                z-index: 10;
+            }
+        }
+
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Invisible element for screen view -->
-        <div class="screen-only">OMGN</div>
+        <!-- Normal screen view (black) -->
+        <div class="screen-content"></div>
 
-        <!-- Visible only when screenshotted -->
-        <div class="screenshot-only">
+        <!-- Screenshot view (white with text) -->
+        <div class="screenshot-content">
             <div class="screenshot-text" id="omgnMessage">hello</div>
         </div>
     </div>
 
     <script>
-        // Detect screenshot attempts
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                console.log('Screenshot detected or app backgrounded');
-            }
-        });
-
-        // Listen for print (screenshot on iOS/iPad)
-        window.addEventListener('beforeprint', () => {
-            console.log('Print triggered - screenshot detected');
-        });
-
-        // Configuration function - customize the tool
+        // OMGN Tool Configuration and Control
         window.OMGN = {
+            config: {
+                message: 'hello',
+                fontSize: '72px',
+                fontWeight: '300',
+                textColor: '#000000',
+                letterSpacing: '8px',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
+                backgroundColor: '#ffffff'
+            },
+
+            // Configure the tool
             configure: function(options) {
-                const defaults = {
+                if (!options) return this.config;
+
+                // Merge with defaults
+                this.config = Object.assign({}, this.config, options);
+
+                // Apply to DOM
+                this.applyConfig();
+
+                // Persist to localStorage
+                try {
+                    localStorage.setItem('omgn_config', JSON.stringify(this.config));
+                } catch (e) {
+                    console.log('localStorage not available (may be file:// protocol)');
+                }
+
+                return this.config;
+            },
+
+            // Apply configuration to the page
+            applyConfig: function() {
+                const root = document.documentElement;
+                root.style.setProperty('--omgn-font-size', this.config.fontSize);
+                root.style.setProperty('--omgn-font-weight', this.config.fontWeight);
+                root.style.setProperty('--omgn-text-color', this.config.textColor);
+                root.style.setProperty('--omgn-letter-spacing', this.config.letterSpacing);
+                root.style.setProperty('--omgn-font-family', this.config.fontFamily);
+                root.style.setProperty('--omgn-bg-color', this.config.backgroundColor);
+
+                const messageEl = document.getElementById('omgnMessage');
+                if (messageEl) {
+                    messageEl.textContent = this.config.message;
+                }
+            },
+
+            // Get current configuration
+            getConfig: function() {
+                return JSON.parse(JSON.stringify(this.config));
+            },
+
+            // Reset to defaults
+            reset: function() {
+                this.config = {
                     message: 'hello',
                     fontSize: '72px',
                     fontWeight: '300',
                     textColor: '#000000',
                     letterSpacing: '8px',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto'
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
+                    backgroundColor: '#ffffff'
                 };
-
-                const config = Object.assign(defaults, options);
-
-                // Apply custom configuration
-                document.documentElement.style.setProperty('--omgn-message', `'${config.message}'`);
-                document.documentElement.style.setProperty('--omgn-font-size', config.fontSize);
-                document.documentElement.style.setProperty('--omgn-font-weight', config.fontWeight);
-                document.documentElement.style.setProperty('--omgn-text-color', config.textColor);
-                document.documentElement.style.setProperty('--omgn-letter-spacing', config.letterSpacing);
-                document.documentElement.style.setProperty('--omgn-font-family', config.fontFamily);
-                document.documentElement.style.setProperty('--omgn-bg-color', config.backgroundColor);
-
-                document.getElementById('omgnMessage').textContent = config.message;
-
-                return config;
-            },
-
-            // Get current configuration
-            getConfig: function() {
-                return {
-                    message: getComputedStyle(document.documentElement).getPropertyValue('--omgn-message'),
-                    fontSize: getComputedStyle(document.documentElement).getPropertyValue('--omgn-font-size'),
-                    textColor: getComputedStyle(document.documentElement).getPropertyValue('--omgn-text-color')
-                };
+                this.applyConfig();
+                return this.config;
             }
         };
 
-        // Default initialization
-        console.log('OMGN Tool loaded. Use OMGN.configure({...}) to customize.');
+        // Load saved configuration from localStorage (if available)
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                const saved = localStorage.getItem('omgn_config');
+                if (saved) {
+                    window.OMGN.configure(JSON.parse(saved));
+                }
+            } catch (e) {
+                console.log('Could not load saved config');
+            }
+
+            // Initialize
+            window.OMGN.applyConfig();
+        });
+
+        // Screenshot detection via orientation change (iPad-specific)
+        window.addEventListener('orientationchange', function() {
+            console.log('Orientation changed - possible screenshot');
+        });
+
+        // Detect when user initiates screenshot (iOS 13+)
+        if (navigator.platform && navigator.platform.indexOf('Mac') > -1 && navigator.maxTouchPoints && navigator.maxTouchPoints > 2) {
+            // iPad detected
+            document.addEventListener('keydown', function(e) {
+                if ((e.metaKey && e.key === 's') || (e.keyCode === 219 && e.metaKey)) {
+                    console.log('Screenshot detected');
+                }
+            });
+        }
+
+        // Console helper
+        console.log('%cOMGN Tool Loaded', 'color: #000; font-size: 16px; font-weight: bold;');
+        console.log('Use OMGN.configure({message: "text", fontSize: "72px", ...}) to customize');
+        console.log('Current config:', window.OMGN.getConfig());
     </script>
 </body>
 </html>
